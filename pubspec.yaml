@@ -7,6 +7,10 @@ environment:
   sdk: ^3.0.0
 
 dependencies:
+  # === LOCAL PACKAGES - ALWAYS USE GIT VERSION ===
+  # Never use path: for these packages. Always use git: to ensure
+  # reproducible builds and proper versioning across environments.
+
   # 9S Protocol - re-exported for downstream consumers
   nine_s:
     git:
