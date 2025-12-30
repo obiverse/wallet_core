@@ -1,6 +1,6 @@
 name: wallet_core
 description: Sovereign wallet Layer 0 - Bitcoin + Lightning + Vault + Identity via 9S Protocol
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 
 environment:
@@ -19,26 +19,39 @@ dependencies:
       url: https://github.com/breez/breez-sdk-liquid-flutter.git
       ref: main
 
-  # Cryptography
-  cryptography: ^2.7.0
-  crypto: ^3.0.3
+  # === BATTLE-TESTED CRYPTO (standing on giants) ===
 
-  # FFI for native bindings
-  ffi: ^2.1.0
-
-  # Key derivation
+  # BIP-39 mnemonic generation/validation
   bip39: ^1.0.6
 
   # BIP-32/44 HD key derivation
   bip32: ^2.0.0
 
-  # Secp256k1 for identity
-  secp256k1: ^0.3.0
+  # BIP-340 Schnorr signatures (Nostr, Taproot)
+  bip340: ^0.2.0
+
+  # Bech32 encoding (npub, nsec, bc1 addresses)
+  bech32: ^0.2.2
+
+  # Nostr protocol - Keychain, NIP-44, events
+  nostr: ^1.4.3
+
+  # Low-level crypto (secp256k1 ECDH, elliptic curves)
+  pointycastle: ^3.7.3
+
+  # X25519 for WireGuard, ChaCha20 for vault
+  cryptography: ^2.7.0
+
+  # SHA hashing
+  crypto: ^3.0.3
 
   # Hex encoding
   convert: ^3.1.1
 
-  # Path provider for storage
+  # FFI for mobi native bindings
+  ffi: ^2.1.0
+
+  # Storage paths
   path_provider: ^2.1.1
 
 dev_dependencies:

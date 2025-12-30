@@ -8,18 +8,34 @@
 ///
 /// All identities are derived deterministically from the seed,
 /// ensuring the same seed always produces the same identities.
+///
+/// Uses battle-tested libraries:
+/// - bip32: HD key derivation (NIP-06 path)
+/// - bip340: Real secp256k1 public key derivation
+/// - nostr: Bech32 encoding (npub)
+///
+/// Copyright (c) 2024-2025 OBIVERSE LLC
+/// Licensed under MIT OR Apache-2.0
 library;
 
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:nine_s/nine_s.dart';
+import 'package:bip32/bip32.dart' as bip32;
+import 'package:bip340/bip340.dart' as bip340;
+import 'package:nostr/nostr.dart' as nostr;
 import 'package:convert/convert.dart';
+
+import 'mobi.dart';
+
+/// NIP-06 derivation path for Nostr identity
+const String _pathNip06 = "m/44'/1237'/0'/0/0";
 
 /// IdentityNamespace - Seed-derived identity
 ///
 /// Implements the 9S Namespace interface for identity operations.
-/// All data is derived on-demand from the seed - nothing stored.
+/// All data is derived on-demand from the seed using real secp256k1.
 class IdentityNamespace implements Namespace {
   final Uint8List _seed;
   final Map<String, Scroll> _cache = {};
@@ -27,55 +43,61 @@ class IdentityNamespace implements Namespace {
   bool _closed = false;
 
   /// Derived keys (lazily computed)
-  late final Uint8List _privateKey;
-  late final Uint8List _publicKey;
+  late final String _privateKeyHex;
+  late final String _publicKeyHex;
 
   IdentityNamespace._(this._seed) {
     _deriveKeys();
     _computeIdentities();
   }
 
-  /// Create from BIP-39 seed bytes
+  /// Create from BIP-39 seed bytes (64 bytes)
   factory IdentityNamespace.fromSeed(Uint8List seed) {
+    if (seed.length < 64) {
+      throw ArgumentError('Seed must be at least 64 bytes (BIP-39 seed)');
+    }
     return IdentityNamespace._(seed);
   }
 
   void _deriveKeys() {
-    // Derive identity key at m/44'/1237'/0'/0/0 (Nostr path)
-    // For simplicity, we use the first 32 bytes of seed as private key
-    // In production, use proper BIP-32 derivation
-    _privateKey = Uint8List.fromList(_seed.sublist(0, 32));
+    // Create BIP-32 root from seed
+    final root = bip32.BIP32.fromSeed(_seed);
 
-    // Compute public key (simplified - in production use secp256k1)
-    // For now, we'll use a hash of the private key as a placeholder
-    _publicKey = _hashBytes(_privateKey);
+    // Derive at NIP-06 path: m/44'/1237'/0'/0/0
+    final derived = root.derivePath(_pathNip06);
+
+    // Private key as hex
+    _privateKeyHex = hex.encode(derived.privateKey!);
+
+    // Public key using REAL secp256k1 via bip340
+    _publicKeyHex = bip340.getPublicKey(_privateKeyHex);
   }
 
   void _computeIdentities() {
-    final hexPubkey = hex.encode(_publicKey);
-
-    // npub - Nostr public key in bech32
-    final npub = _toBech32('npub', _publicKey);
+    // npub - Nostr public key in bech32 (using battle-tested nostr package)
+    final npub = nostr.Nip19.encodePubkey(_publicKeyHex);
     _cache['/npub'] = Scroll(
       key: '/npub',
-      data: {'npub': npub, 'hex': hexPubkey},
+      data: {'npub': npub, 'hex': _publicKeyHex},
       type_: 'identity/npub@v1',
     );
 
     // hex - Raw hex public key
     _cache['/hex'] = Scroll(
       key: '/hex',
-      data: {'hex': hexPubkey},
+      data: {'hex': _publicKeyHex},
       type_: 'identity/hex@v1',
     );
 
-    // mobi - 12-digit mobinumber
-    final mobi = _deriveMobinumber(_publicKey);
+    // mobi - Using proper Mobi derivation from real pubkey
+    final pubkeyBytes = Uint8List.fromList(hex.decode(_publicKeyHex));
+    final mobi = Mobi.fromBytes(pubkeyBytes);
     _cache['/mobi'] = Scroll(
       key: '/mobi',
       data: {
-        'raw': mobi,
-        'formatted': _formatMobi(mobi),
+        'raw': mobi.display,
+        'formatted': mobi.formatDisplay(),
+        'full': mobi.full,
       },
       type_: 'identity/mobi@v1',
     );
@@ -83,40 +105,17 @@ class IdentityNamespace implements Namespace {
     // fingerprint - First 8 chars of hex pubkey
     _cache['/fingerprint'] = Scroll(
       key: '/fingerprint',
-      data: {'fingerprint': hexPubkey.substring(0, 8)},
+      data: {'fingerprint': _publicKeyHex.substring(0, 8)},
       type_: 'identity/fingerprint@v1',
     );
-  }
 
-  // Simple hash function (placeholder - use proper crypto in production)
-  Uint8List _hashBytes(Uint8List input) {
-    var hash = 0x811c9dc5;
-    for (final byte in input) {
-      hash ^= byte;
-      hash = (hash * 0x01000193) & 0xffffffff;
-    }
-    final result = Uint8List(32);
-    for (var i = 0; i < 32; i++) {
-      result[i] = (hash >> (i % 4) * 8) & 0xff;
-      hash = (hash * 31 + i) & 0xffffffff;
-    }
-    return result;
-  }
-
-  // Simplified bech32 encoding (placeholder)
-  String _toBech32(String hrp, Uint8List data) {
-    // In production, use proper bech32 encoding
-    return '$hrp${hex.encode(data.sublist(0, 32))}';
-  }
-
-  String _deriveMobinumber(Uint8List pubkey) {
-    final hash = pubkey.fold<int>(0, (prev, byte) => (prev * 31 + byte) % 1000000000000);
-    return hash.toString().padLeft(12, '0');
-  }
-
-  String _formatMobi(String raw) {
-    if (raw.length != 12) return raw;
-    return '${raw.substring(0, 3)}-${raw.substring(3, 6)}-${raw.substring(6, 9)}-${raw.substring(9, 12)}';
+    // nsec - Private key in bech32 (for secure export)
+    final nsec = nostr.Nip19.encodePrivkey(_privateKeyHex);
+    _cache['/nsec'] = Scroll(
+      key: '/nsec',
+      data: {'nsec': nsec},
+      type_: 'identity/nsec@v1',
+    );
   }
 
   // ==========================================================================

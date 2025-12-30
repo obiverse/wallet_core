@@ -48,7 +48,7 @@ class WalletNamespace implements Namespace {
   final String network;
   final String? apiKey;
 
-  BindingLiquidSdk? _sdk;
+  BreezSdkLiquid? _sdk;
   bool _closed = false;
   bool _connecting = false;
   final List<_Watcher> _watchers = [];
@@ -67,7 +67,7 @@ class WalletNamespace implements Namespace {
   bool get isConnected => _sdk != null;
 
   /// Ensure SDK is connected
-  Future<BindingLiquidSdk> _ensureConnected() async {
+  Future<BreezSdkLiquid> _ensureConnected() async {
     if (_sdk != null) return _sdk!;
     if (_connecting) {
       while (_connecting) {
@@ -87,22 +87,24 @@ class WalletNamespace implements Namespace {
         breezApiKey: apiKey,
       );
 
+      // Create updated config with custom workingDir
       final updatedConfig = Config(
-        liquidElectrumUrl: config.liquidElectrumUrl,
-        bitcoinElectrumUrl: config.bitcoinElectrumUrl,
-        mempoolspaceUrl: config.mempoolspaceUrl,
+        liquidExplorer: config.liquidExplorer,
+        bitcoinExplorer: config.bitcoinExplorer,
         workingDir: dataDir,
         network: config.network,
         paymentTimeoutSec: config.paymentTimeoutSec,
-        zeroConfMinFeeRateMsat: config.zeroConfMinFeeRateMsat,
         syncServiceUrl: config.syncServiceUrl,
         breezApiKey: config.breezApiKey,
-        cacheDir: config.cacheDir,
         zeroConfMaxAmountSat: config.zeroConfMaxAmountSat,
         useDefaultExternalInputParsers: config.useDefaultExternalInputParsers,
         externalInputParsers: config.externalInputParsers,
-        onchainFeeRateLeewaySatPerVbyte: config.onchainFeeRateLeewaySatPerVbyte,
-        assetMetadataUrl: config.assetMetadataUrl,
+        onchainFeeRateLeewaySat: config.onchainFeeRateLeewaySat,
+        assetMetadata: config.assetMetadata,
+        sideswapApiKey: config.sideswapApiKey,
+        useMagicRoutingHints: config.useMagicRoutingHints,
+        onchainSyncPeriodSec: config.onchainSyncPeriodSec,
+        onchainSyncRequestTimeoutSec: config.onchainSyncRequestTimeoutSec,
       );
 
       _sdk = await connect(
@@ -226,7 +228,7 @@ class WalletNamespace implements Namespace {
             key: '/transactions',
             data: {
               'children': payments
-                  .map((p) => '/transactions/${p.txId ?? p.swapId}')
+                  .map((p) => '/transactions/${p.txId ?? _getSwapId(p)}')
                   .toList(),
               'count': payments.length,
             },
@@ -307,7 +309,7 @@ class WalletNamespace implements Namespace {
             final sdk = await _ensureConnected();
             final payments = await sdk.listPayments(req: ListPaymentsRequest());
             final payment = payments
-                .where((p) => p.txId == id || p.swapId == id)
+                .where((p) => p.txId == id || _getSwapId(p) == id)
                 .firstOrNull;
             if (payment != null) {
               return Scroll(
@@ -328,17 +330,37 @@ class WalletNamespace implements Namespace {
     }
   }
 
+  /// Extract swapId from PaymentDetails (varies by type)
+  String? _getSwapId(Payment payment) {
+    final details = payment.details;
+    return switch (details) {
+      PaymentDetails_Lightning(:final swapId) => swapId,
+      PaymentDetails_Bitcoin(:final swapId) => swapId,
+      PaymentDetails_Liquid() => null,
+    };
+  }
+
+  /// Extract description from PaymentDetails (varies by type)
+  String _getDescription(Payment payment) {
+    final details = payment.details;
+    return switch (details) {
+      PaymentDetails_Lightning(:final description) => description,
+      PaymentDetails_Bitcoin(:final description) => description,
+      PaymentDetails_Liquid(:final description) => description,
+    };
+  }
+
   Map<String, dynamic> _paymentToMap(Payment payment) {
     final isReceive = payment.paymentType == PaymentType.receive;
     return {
       'txid': payment.txId ?? '',
-      'swapId': payment.swapId ?? '',
+      'swapId': _getSwapId(payment) ?? '',
       'amount': payment.amountSat.toInt(),
       'fee': payment.feesSat.toInt(),
       'type': isReceive ? 'receive' : 'send',
       'status': payment.status.name,
       'timestamp': payment.timestamp,
-      'description': payment.description ?? '',
+      'description': _getDescription(payment),
     };
   }
 
@@ -403,7 +425,7 @@ class WalletNamespace implements Namespace {
       key: '/send',
       data: {
         'txid': response.payment.txId ?? '',
-        'swapId': response.payment.swapId ?? '',
+        'swapId': _getSwapId(response.payment) ?? '',
         'status': response.payment.status.name,
         'amount': response.payment.amountSat.toInt(),
         'fee': response.payment.feesSat.toInt(),
@@ -620,7 +642,7 @@ class WalletNamespace implements Namespace {
     return Ok(Scroll(
       key: '/fee-estimate',
       data: {
-        'fee': prepare.feesSat.toInt(),
+        'fee': prepare.feesSat?.toInt() ?? 0,
       },
       type_: 'wallet/fee-estimate@v1',
     ));

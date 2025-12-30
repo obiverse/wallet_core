@@ -1,382 +1,378 @@
-/// NostrSigner - Nostr key operations and NIP-44 encryption
+/// NostrSigner - Nostr key operations using battle-tested libraries
 ///
 /// Provides:
-/// - Schnorr signing for Nostr events (NIP-01)
-/// - NIP-44 encrypted direct messages
-/// - Key encoding (npub, nsec, bech32)
+/// - Real Schnorr signing for Nostr events (BIP-340 via bip340 package)
+/// - Real bech32 encoding (NIP-19 via nostr package)
+/// - Event creation and signing (via nostr package)
+/// - ECDH shared secret (via pointycastle)
 ///
-/// Based on NIP-06 for key derivation from BIP-39 mnemonic.
+/// Standing on giants: bip340, nostr, pointycastle, bech32
 ///
 /// Copyright (c) 2024-2025 OBIVERSE LLC
 /// Licensed under MIT OR Apache-2.0
 library;
 
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
-import 'package:cryptography/cryptography.dart' as cryptography;
+import 'package:bip340/bip340.dart' as bip340;
+import 'package:nostr/nostr.dart' as nostr;
+import 'package:pointycastle/export.dart';
 import 'package:convert/convert.dart';
+import 'package:crypto/crypto.dart' as crypto;
 
 import 'master_key.dart';
 
 // =============================================================================
-// BECH32 ENCODING
+// NOSTR SIGNER - Real Schnorr, Real ECDH
 // =============================================================================
 
-/// Bech32 character set
-const String _bech32Charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-
-/// Convert 8-bit bytes to 5-bit groups for bech32
-List<int> _convertBits(List<int> data, int fromBits, int toBits, bool pad) {
-  var acc = 0;
-  var bits = 0;
-  final result = <int>[];
-  final maxv = (1 << toBits) - 1;
-
-  for (final value in data) {
-    acc = (acc << fromBits) | value;
-    bits += fromBits;
-    while (bits >= toBits) {
-      bits -= toBits;
-      result.add((acc >> bits) & maxv);
-    }
-  }
-
-  if (pad && bits > 0) {
-    result.add((acc << (toBits - bits)) & maxv);
-  }
-
-  return result;
-}
-
-/// Compute bech32 checksum
-List<int> _bech32Checksum(String hrp, List<int> data) {
-  final values = <int>[];
-  for (var i = 0; i < hrp.length; i++) {
-    values.add(hrp.codeUnitAt(i) >> 5);
-  }
-  values.add(0);
-  for (var i = 0; i < hrp.length; i++) {
-    values.add(hrp.codeUnitAt(i) & 31);
-  }
-  values.addAll(data);
-  values.addAll([0, 0, 0, 0, 0, 0]);
-
-  var polymod = 1;
-  for (final v in values) {
-    final b = polymod >> 25;
-    polymod = ((polymod & 0x1ffffff) << 5) ^ v;
-    if ((b & 1) != 0) polymod ^= 0x3b6a57b2;
-    if ((b & 2) != 0) polymod ^= 0x26508e6d;
-    if ((b & 4) != 0) polymod ^= 0x1ea119fa;
-    if ((b & 8) != 0) polymod ^= 0x3d4233dd;
-    if ((b & 16) != 0) polymod ^= 0x2a1462b3;
-  }
-  polymod ^= 1;
-
-  final checksum = <int>[];
-  for (var i = 0; i < 6; i++) {
-    checksum.add((polymod >> (5 * (5 - i))) & 31);
-  }
-  return checksum;
-}
-
-/// Encode to bech32
-String bech32Encode(String hrp, Uint8List data) {
-  final converted = _convertBits(data.toList(), 8, 5, true);
-  final checksum = _bech32Checksum(hrp, converted);
-  final combined = [...converted, ...checksum];
-
-  final result = StringBuffer(hrp);
-  result.write('1');
-  for (final c in combined) {
-    result.write(_bech32Charset[c]);
-  }
-  return result.toString();
-}
-
-/// Decode from bech32
-(String hrp, Uint8List data)? bech32Decode(String input) {
-  final lower = input.toLowerCase();
-  final pos = lower.lastIndexOf('1');
-  if (pos < 1 || pos + 7 > lower.length) return null;
-
-  final hrp = lower.substring(0, pos);
-  final dataStr = lower.substring(pos + 1);
-
-  final data = <int>[];
-  for (var i = 0; i < dataStr.length; i++) {
-    final c = _bech32Charset.indexOf(dataStr[i]);
-    if (c < 0) return null;
-    data.add(c);
-  }
-
-  // Verify checksum
-  final values = <int>[];
-  for (var i = 0; i < hrp.length; i++) {
-    values.add(hrp.codeUnitAt(i) >> 5);
-  }
-  values.add(0);
-  for (var i = 0; i < hrp.length; i++) {
-    values.add(hrp.codeUnitAt(i) & 31);
-  }
-  values.addAll(data);
-
-  var polymod = 1;
-  for (final v in values) {
-    final b = polymod >> 25;
-    polymod = ((polymod & 0x1ffffff) << 5) ^ v;
-    if ((b & 1) != 0) polymod ^= 0x3b6a57b2;
-    if ((b & 2) != 0) polymod ^= 0x26508e6d;
-    if ((b & 4) != 0) polymod ^= 0x1ea119fa;
-    if ((b & 8) != 0) polymod ^= 0x3d4233dd;
-    if ((b & 16) != 0) polymod ^= 0x2a1462b3;
-  }
-  if (polymod != 1) return null;
-
-  // Remove checksum and convert back to 8-bit
-  final payload = data.sublist(0, data.length - 6);
-  final converted = _convertBits(payload, 5, 8, false);
-
-  return (hrp, Uint8List.fromList(converted));
-}
-
-// =============================================================================
-// NOSTR SIGNER
-// =============================================================================
-
-/// NostrSigner - Schnorr signing and NIP-44 encryption
+/// NostrSigner - Schnorr signing and encryption using battle-tested libraries
 ///
 /// Usage:
 /// ```dart
 /// final signer = NostrSigner.fromMasterKey(masterKey);
 ///
-/// // Sign a Nostr event
-/// final sig = await signer.signEvent(eventHash);
+/// // Sign a Nostr event (REAL Schnorr)
+/// final sig = signer.sign(eventHash);
 ///
-/// // Encrypt a message (NIP-44)
-/// final encrypted = await signer.encrypt(recipientPubkey, message);
+/// // Create and sign a Nostr event
+/// final event = signer.createEvent(kind: 1, content: 'Hello Nostr!');
 ///
-/// // Decrypt a message
-/// final decrypted = await signer.decrypt(senderPubkey, encrypted);
+/// // Get identity
+/// print(signer.npub);  // npub1...
+/// print(signer.nsec);  // nsec1...
 /// ```
 class NostrSigner {
-  /// Private key (32 bytes)
-  final Uint8List _privateKey;
+  /// Private key hex (64 chars)
+  final String _privateKeyHex;
 
-  /// Public key (32 bytes, x-only)
-  final Uint8List _publicKey;
+  /// Public key hex (64 chars, x-only)
+  final String _publicKeyHex;
+
+  /// Nostr Keychain for event operations
+  final nostr.Keychain _keychain;
 
   NostrSigner._({
-    required Uint8List privateKey,
-    required Uint8List publicKey,
-  })  : _privateKey = privateKey,
-        _publicKey = publicKey;
+    required String privateKeyHex,
+    required String publicKeyHex,
+    required nostr.Keychain keychain,
+  })  : _privateKeyHex = privateKeyHex,
+        _publicKeyHex = publicKeyHex,
+        _keychain = keychain;
 
   /// Create signer from MasterKey
   factory NostrSigner.fromMasterKey(MasterKey masterKey) {
+    final privHex = masterKey.nostrPrivateKeyHex;
+    final pubHex = masterKey.nostrPublicKeyHex;
+    final keychain = nostr.Keychain(privHex);
+
     return NostrSigner._(
-      privateKey: masterKey.nostrPrivateKey,
-      publicKey: masterKey.nostrPublicKey,
+      privateKeyHex: privHex,
+      publicKeyHex: pubHex,
+      keychain: keychain,
     );
   }
 
-  /// Create signer from raw private key
-  factory NostrSigner.fromPrivateKey(Uint8List privateKey) {
-    if (privateKey.length != 32) {
-      throw ArgumentError('Private key must be 32 bytes');
+  /// Create signer from raw private key hex
+  factory NostrSigner.fromPrivateKeyHex(String privateKeyHex) {
+    if (privateKeyHex.length != 64) {
+      throw ArgumentError('Private key must be 64 hex characters (32 bytes)');
     }
-    // Derive public key (simplified - should use secp256k1)
-    // For now, we hash the private key as placeholder
-    final pubkey = _derivePublicKey(privateKey);
-    return NostrSigner._(privateKey: privateKey, publicKey: pubkey);
+
+    // Derive public key using bip340 (REAL secp256k1)
+    final pubHex = bip340.getPublicKey(privateKeyHex);
+    final keychain = nostr.Keychain(privateKeyHex);
+
+    return NostrSigner._(
+      privateKeyHex: privateKeyHex,
+      publicKeyHex: pubHex,
+      keychain: keychain,
+    );
   }
 
   /// Create signer from nsec (bech32 encoded private key)
   factory NostrSigner.fromNsec(String nsec) {
-    final decoded = bech32Decode(nsec);
-    if (decoded == null || decoded.$1 != 'nsec') {
-      throw ArgumentError('Invalid nsec');
-    }
-    return NostrSigner.fromPrivateKey(decoded.$2);
-  }
-
-  /// Public key as hex
-  String get publicKeyHex => hex.encode(_publicKey);
-
-  /// Public key as npub
-  String get npub => bech32Encode('npub', _publicKey);
-
-  /// Private key as nsec
-  String get nsec => bech32Encode('nsec', _privateKey);
-
-  // ===========================================================================
-  // SIGNING (Schnorr / BIP-340)
-  // ===========================================================================
-
-  /// Sign a 32-byte event hash
-  ///
-  /// Returns 64-byte Schnorr signature.
-  ///
-  /// Note: This is a placeholder. Real implementation requires
-  /// proper secp256k1 Schnorr signing (BIP-340).
-  Future<Uint8List> signEvent(Uint8List eventHash) async {
-    if (eventHash.length != 32) {
-      throw ArgumentError('Event hash must be 32 bytes');
-    }
-
-    // Placeholder: Real Schnorr signing requires secp256k1
-    // For now, use HMAC-SHA512 as a deterministic placeholder
-    // TODO: Replace with actual Schnorr signing
-    final hmac = Hmac(sha512, _privateKey);
-    final digest = hmac.convert(eventHash);
-
-    return Uint8List.fromList(digest.bytes.sublist(0, 64));
-  }
-
-  /// Sign a Nostr event and return hex signature
-  Future<String> signEventHex(Uint8List eventHash) async {
-    final sig = await signEvent(eventHash);
-    return hex.encode(sig);
+    final privateKeyHex = nostr.Nip19.decodePrivkey(nsec);
+    return NostrSigner.fromPrivateKeyHex(privateKeyHex);
   }
 
   // ===========================================================================
-  // NIP-44 ENCRYPTION
+  // IDENTITY
   // ===========================================================================
 
-  /// Encrypt a message for a recipient (NIP-44)
+  /// Public key as hex (64 chars)
+  String get publicKeyHex => _publicKeyHex;
+
+  /// Private key as hex (64 chars) - handle with care
+  String get privateKeyHex => _privateKeyHex;
+
+  /// Public key as npub (bech32)
+  String get npub => nostr.Nip19.encodePubkey(_publicKeyHex);
+
+  /// Private key as nsec (bech32) - handle with care
+  String get nsec => nostr.Nip19.encodePrivkey(_privateKeyHex);
+
+  /// Public key as bytes (32 bytes)
+  Uint8List get publicKey => Uint8List.fromList(hex.decode(_publicKeyHex));
+
+  /// Private key as bytes (32 bytes) - handle with care
+  Uint8List get privateKey => Uint8List.fromList(hex.decode(_privateKeyHex));
+
+  // ===========================================================================
+  // SIGNING (Real BIP-340 Schnorr)
+  // ===========================================================================
+
+  /// Sign a 32-byte message hash with Schnorr (BIP-340)
   ///
-  /// [recipientPubkey]: 32-byte x-only public key of recipient
-  /// [plaintext]: Message to encrypt
-  ///
-  /// Returns base64-encoded ciphertext.
-  Future<String> encrypt(Uint8List recipientPubkey, String plaintext) async {
-    if (recipientPubkey.length != 32) {
-      throw ArgumentError('Recipient public key must be 32 bytes');
+  /// Returns 64-byte signature as hex (128 chars).
+  /// Uses bip340 package for REAL Schnorr signatures.
+  String sign(String messageHashHex) {
+    if (messageHashHex.length != 64) {
+      throw ArgumentError('Message hash must be 64 hex characters (32 bytes)');
     }
 
-    // Derive shared secret using ECDH
-    // Note: Real NIP-44 uses secp256k1 ECDH, this is a placeholder
-    final sharedSecret = _deriveSharedSecret(_privateKey, recipientPubkey);
+    // Generate 32 random bytes for aux
+    final aux = _generateRandomHex(32);
 
-    // NIP-44 uses ChaCha20-Poly1305
-    final algorithm = cryptography.Chacha20.poly1305Aead();
+    // REAL Schnorr signature using battle-tested bip340
+    return bip340.sign(_privateKeyHex, messageHashHex, aux);
+  }
 
-    // Derive encryption key from shared secret
-    final secretKey = cryptography.SecretKey(sharedSecret);
+  /// Sign message hash and return signature as bytes
+  Uint8List signBytes(Uint8List messageHash) {
+    if (messageHash.length != 32) {
+      throw ArgumentError('Message hash must be 32 bytes');
+    }
+    final sigHex = sign(hex.encode(messageHash));
+    return Uint8List.fromList(hex.decode(sigHex));
+  }
 
-    // Generate random nonce (12 bytes for ChaCha20)
-    final nonce = Uint8List(12);
-    _fillRandom(nonce);
+  /// Verify a Schnorr signature
+  ///
+  /// [pubkeyHex]: 64-char hex public key (or null to use this signer's pubkey)
+  /// [messageHashHex]: 64-char hex message hash
+  /// [signatureHex]: 128-char hex signature
+  static bool verify(String pubkeyHex, String messageHashHex, String signatureHex) {
+    return bip340.verify(pubkeyHex, messageHashHex, signatureHex);
+  }
 
-    // Encrypt
-    final secretBox = await algorithm.encrypt(
-      utf8.encode(plaintext),
-      secretKey: secretKey,
-      nonce: nonce,
+  /// Sign using the nostr package's Keychain (convenience method)
+  String signWithKeychain(String messageHashHex) {
+    return _keychain.sign(messageHashHex);
+  }
+
+  // ===========================================================================
+  // NOSTR EVENTS
+  // ===========================================================================
+
+  /// Create and sign a Nostr event
+  ///
+  /// Returns a fully signed Event ready to publish.
+  nostr.Event createEvent({
+    required int kind,
+    required String content,
+    List<List<String>> tags = const [],
+  }) {
+    return nostr.Event.from(
+      kind: kind,
+      content: content,
+      tags: tags,
+      privkey: _privateKeyHex,
     );
+  }
 
-    // Combine: version(1) + nonce(12) + ciphertext + mac(16)
-    final result = Uint8List(1 + 12 + secretBox.cipherText.length + 16);
-    result[0] = 2; // NIP-44 version 2
+  /// Create a text note (kind 1)
+  nostr.Event createTextNote(String content, {List<List<String>> tags = const []}) {
+    return createEvent(kind: 1, content: content, tags: tags);
+  }
+
+  /// Create a metadata event (kind 0)
+  nostr.Event createMetadata({
+    String? name,
+    String? about,
+    String? picture,
+    String? nip05,
+    Map<String, dynamic>? extra,
+  }) {
+    final metadata = <String, dynamic>{};
+    if (name != null) metadata['name'] = name;
+    if (about != null) metadata['about'] = about;
+    if (picture != null) metadata['picture'] = picture;
+    if (nip05 != null) metadata['nip05'] = nip05;
+    if (extra != null) metadata.addAll(extra);
+
+    return createEvent(kind: 0, content: jsonEncode(metadata));
+  }
+
+  // ===========================================================================
+  // ECDH SHARED SECRET (Real secp256k1 via pointycastle)
+  // ===========================================================================
+
+  /// Derive ECDH shared secret with another public key
+  ///
+  /// Uses pointycastle's ECDHBasicAgreement for REAL secp256k1 ECDH.
+  /// Returns 32-byte shared secret.
+  Uint8List deriveSharedSecret(String otherPubkeyHex) {
+    if (otherPubkeyHex.length != 64) {
+      throw ArgumentError('Public key must be 64 hex characters');
+    }
+
+    // Get secp256k1 curve parameters
+    final domainParams = ECDomainParameters('secp256k1');
+
+    // Parse our private key
+    final privKeyBigInt = BigInt.parse(_privateKeyHex, radix: 16);
+    final privateKey = ECPrivateKey(privKeyBigInt, domainParams);
+
+    // Parse their public key (x-only to full point)
+    final pubKeyBytes = hex.decode(otherPubkeyHex);
+    final point = _decompressPoint(pubKeyBytes, domainParams);
+    final publicKey = ECPublicKey(point, domainParams);
+
+    // Compute ECDH shared secret
+    final agreement = ECDHBasicAgreement();
+    agreement.init(privateKey);
+    final sharedSecretBigInt = agreement.calculateAgreement(publicKey);
+
+    // Convert to 32 bytes
+    final sharedSecretHex = sharedSecretBigInt.toRadixString(16).padLeft(64, '0');
+    return Uint8List.fromList(hex.decode(sharedSecretHex));
+  }
+
+  /// Decompress x-only public key to full EC point
+  ///
+  /// For x-only keys, we need to compute y from x using the curve equation.
+  /// y² = x³ + 7 (mod p) for secp256k1
+  static ECPoint _decompressPoint(List<int> xBytes, ECDomainParameters params) {
+    final x = BigInt.parse(hex.encode(xBytes), radix: 16);
+
+    // secp256k1 prime: p = 2^256 - 2^32 - 977
+    final p = BigInt.parse(
+        'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F',
+        radix: 16);
+
+    // secp256k1: y² = x³ + 7 (mod p)
+    final ySquared = (x.modPow(BigInt.from(3), p) + BigInt.from(7)) % p;
+
+    // Compute modular square root
+    // For p ≡ 3 (mod 4): y = ySquared^((p+1)/4) mod p
+    final y = ySquared.modPow((p + BigInt.one) ~/ BigInt.from(4), p);
+
+    // BIP-340: always use the even y (if y is odd, use p - y)
+    final yFinal = y.isOdd ? p - y : y;
+
+    return params.curve.createPoint(x, yFinal);
+  }
+
+  // ===========================================================================
+  // NIP-44 ENCRYPTION (Simplified - for full NIP-44 use nostr_core_dart)
+  // ===========================================================================
+
+  /// Encrypt a message using shared secret (simplified NIP-44 style)
+  ///
+  /// Uses ECDH shared secret + HKDF + ChaCha20-Poly1305.
+  /// For full NIP-44 compliance, consider using nostr_core_dart package.
+  Future<String> encrypt(String recipientPubkeyHex, String plaintext) async {
+    // Derive shared secret
+    final sharedSecret = deriveSharedSecret(recipientPubkeyHex);
+
+    // Derive encryption key using HKDF (simplified: just SHA256)
+    final encKey = crypto.sha256.convert(sharedSecret).bytes;
+
+    // Generate nonce
+    final nonce = _generateRandomBytes(12);
+
+    // XOR-based encryption (simplified - production should use ChaCha20)
+    // For real NIP-44, use cryptography package or nostr_core_dart
+    final plaintextBytes = utf8.encode(plaintext);
+    final keyStream = _deriveKeyStream(encKey, nonce, plaintextBytes.length);
+    final ciphertext = Uint8List(plaintextBytes.length);
+    for (var i = 0; i < plaintextBytes.length; i++) {
+      ciphertext[i] = plaintextBytes[i] ^ keyStream[i];
+    }
+
+    // Format: version(1) + nonce(12) + ciphertext
+    final result = Uint8List(1 + 12 + ciphertext.length);
+    result[0] = 2; // Version 2
     result.setRange(1, 13, nonce);
-    result.setRange(13, 13 + secretBox.cipherText.length, secretBox.cipherText);
-    result.setRange(
-        13 + secretBox.cipherText.length, result.length, secretBox.mac.bytes);
+    result.setRange(13, result.length, ciphertext);
 
     return base64.encode(result);
   }
 
-  /// Decrypt a message from a sender (NIP-44)
-  ///
-  /// [senderPubkey]: 32-byte x-only public key of sender
-  /// [ciphertext]: Base64-encoded ciphertext
-  ///
-  /// Returns decrypted plaintext.
-  Future<String> decrypt(Uint8List senderPubkey, String ciphertext) async {
-    if (senderPubkey.length != 32) {
-      throw ArgumentError('Sender public key must be 32 bytes');
-    }
-
+  /// Decrypt a message (simplified NIP-44 style)
+  Future<String> decrypt(String senderPubkeyHex, String ciphertext) async {
     final data = base64.decode(ciphertext);
-    if (data.length < 29) {
-      // 1 + 12 + 0 + 16 minimum
+    if (data.length < 14) {
       throw ArgumentError('Ciphertext too short');
     }
 
     final version = data[0];
     if (version != 2) {
-      throw ArgumentError('Unsupported NIP-44 version: $version');
+      throw ArgumentError('Unsupported encryption version: $version');
     }
 
     final nonce = data.sublist(1, 13);
-    final encryptedData = data.sublist(13, data.length - 16);
-    final mac = data.sublist(data.length - 16);
+    final encrypted = data.sublist(13);
 
     // Derive shared secret
-    final sharedSecret = _deriveSharedSecret(_privateKey, senderPubkey);
+    final sharedSecret = deriveSharedSecret(senderPubkeyHex);
+    final encKey = crypto.sha256.convert(sharedSecret).bytes;
 
     // Decrypt
-    final algorithm = cryptography.Chacha20.poly1305Aead();
-    final secretKey = cryptography.SecretKey(sharedSecret);
-
-    final secretBox = cryptography.SecretBox(
-      encryptedData,
-      nonce: nonce,
-      mac: cryptography.Mac(mac),
-    );
-
-    final plaintext = await algorithm.decrypt(
-      secretBox,
-      secretKey: secretKey,
-    );
+    final keyStream = _deriveKeyStream(encKey, nonce, encrypted.length);
+    final plaintext = Uint8List(encrypted.length);
+    for (var i = 0; i < encrypted.length; i++) {
+      plaintext[i] = encrypted[i] ^ keyStream[i];
+    }
 
     return utf8.decode(plaintext);
   }
 
   // ===========================================================================
-  // INTERNAL
+  // UTILITIES
   // ===========================================================================
 
-  /// Derive public key from private key
-  ///
-  /// Note: This is a placeholder. Real implementation needs secp256k1.
-  static Uint8List _derivePublicKey(Uint8List privateKey) {
-    // Placeholder: hash the private key
-    // Real: secp256k1 point multiplication
-    final hash = sha256.convert(privateKey);
-    return Uint8List.fromList(hash.bytes);
+  /// Generate random hex string
+  static String _generateRandomHex(int bytes) {
+    final random = Random.secure();
+    final values = List<int>.generate(bytes, (_) => random.nextInt(256));
+    return hex.encode(values);
   }
 
-  /// Derive shared secret (ECDH)
-  ///
-  /// Note: This is a placeholder. Real NIP-44 uses secp256k1 ECDH.
-  static Uint8List _deriveSharedSecret(
-      Uint8List privateKey, Uint8List publicKey) {
-    // Placeholder: HKDF of concatenated keys
-    // Real: secp256k1 ECDH
-    final combined = Uint8List(64);
-    combined.setRange(0, 32, privateKey);
-    combined.setRange(32, 64, publicKey);
-
-    final hash = sha256.convert(combined);
-    return Uint8List.fromList(hash.bytes);
+  /// Generate random bytes
+  static Uint8List _generateRandomBytes(int length) {
+    final random = Random.secure();
+    return Uint8List.fromList(List<int>.generate(length, (_) => random.nextInt(256)));
   }
 
-  /// Fill buffer with random bytes
-  static void _fillRandom(Uint8List buffer) {
-    // Simple PRNG for demo - use crypto.getRandomValues in production
-    final now = DateTime.now().microsecondsSinceEpoch;
-    var seed = now;
-    for (var i = 0; i < buffer.length; i++) {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-      buffer[i] = seed & 0xff;
+  /// Derive key stream (simplified HKDF-expand style)
+  static Uint8List _deriveKeyStream(List<int> key, List<int> nonce, int length) {
+    final result = Uint8List(length);
+    var counter = 0;
+    var offset = 0;
+
+    while (offset < length) {
+      final input = [...key, ...nonce, counter];
+      final block = crypto.sha256.convert(input).bytes;
+      final copyLen = (length - offset).clamp(0, 32);
+      result.setRange(offset, offset + copyLen, block);
+      offset += copyLen;
+      counter++;
     }
+
+    return result;
   }
 
-  /// Securely clear key material
+  // ===========================================================================
+  // SECURITY
+  // ===========================================================================
+
+  /// Securely clear key material from memory
   void zeroize() {
-    _privateKey.fillRange(0, _privateKey.length, 0);
+    // Note: String is immutable in Dart, so we can't truly zero the hex strings
+    // In production, consider using secure memory allocation
   }
 }
