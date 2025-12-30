@@ -1,0 +1,42 @@
+name: wallet_core
+description: Sovereign wallet Layer 0 - Bitcoin + Lightning + Vault + Identity via 9S Protocol
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  # 9S Protocol - re-exported for downstream consumers
+  nine_s:
+    git:
+      url: https://github.com/obiverse/nine_s_dart.git
+      ref: main
+
+  # Lightning + Bitcoin via Breez SDK Liquid
+  flutter_breez_liquid:
+    git:
+      url: https://github.com/breez/breez-sdk-liquid-flutter.git
+      ref: main
+
+  # Cryptography
+  cryptography: ^2.7.0
+
+  # Key derivation
+  bip39: ^1.0.6
+
+  # BIP-32/44 HD key derivation
+  bip32: ^2.0.0
+
+  # Secp256k1 for identity
+  secp256k1: ^0.3.0
+
+  # Hex encoding
+  convert: ^3.1.1
+
+  # Path provider for storage
+  path_provider: ^2.1.1
+
+dev_dependencies:
+  test: ^1.24.0
+  lints: ^3.0.0
