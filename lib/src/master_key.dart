@@ -198,7 +198,8 @@ class MasterKey {
   }
 
   /// Bitcoin extended public key (for watch-only wallets)
-  String get bitcoinXpub => _bitcoinAccount.toBase58();
+  /// Uses neutered() to ensure only public key is exported
+  String get bitcoinXpub => _bitcoinAccount.neutered().toBase58();
 
   /// Derive a Bitcoin receive address key
   ///
