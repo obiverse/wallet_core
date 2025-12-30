@@ -67,6 +67,7 @@ export 'package:nine_s/nine_s.dart';
 // Wallet Core namespaces
 export 'src/wallet_namespace.dart';
 export 'src/identity_namespace.dart';
+export 'src/onboard_namespace.dart';
 
 // Key derivation and identity
 export 'src/master_key.dart';
