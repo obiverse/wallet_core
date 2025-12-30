@@ -19,6 +19,14 @@
 /// │  │ /vault/*    → Store (encrypted, from nine_s)        │   │
 /// │  │ /identity/* → IdentityNamespace (seed-derived)      │   │
 /// │  └─────────────────────────────────────────────────────┘   │
+/// │                                                             │
+/// │  Keys & Identity:                                           │
+/// │  ┌─────────────────────────────────────────────────────┐   │
+/// │  │ MasterKey   → BIP-39/84/NIP-06 derivation           │   │
+/// │  │ NostrSigner → Schnorr signing, NIP-44 encryption    │   │
+/// │  │ WireGuard   → Curve25519 VPN keys                   │   │
+/// │  │ Mobi        → 21-digit human-readable identifier    │   │
+/// │  └─────────────────────────────────────────────────────┘   │
 /// └─────────────────────────────────────────────────────────────┘
 /// ```
 ///
@@ -30,10 +38,16 @@
 /// // Everything from nine_s is available
 /// final kernel = Kernel();
 ///
+/// // Create master key from mnemonic
+/// final master = MasterKey.fromMnemonic('abandon abandon ... about');
+/// print('Mobi: ${master.mobi.formatDisplay()}');
+/// print('Nostr: ${master.npub}');
+///
 /// // Mount wallet namespaces
-/// final walletCore = await WalletCore.initialize(
+/// final walletCore = await WalletCore.fromMnemonic(
+///   mnemonic: master.mnemonic,
 ///   dataDir: '/path/to/data',
-///   masterKey: seed,
+///   network: 'mainnet',
 /// );
 ///
 /// kernel.mount('/wallet', walletCore.wallet);
@@ -53,6 +67,12 @@ export 'package:nine_s/nine_s.dart';
 // Wallet Core namespaces
 export 'src/wallet_namespace.dart';
 export 'src/identity_namespace.dart';
+
+// Key derivation and identity
+export 'src/master_key.dart';
+export 'src/mobi.dart';
+export 'src/nostr_signer.dart';
+export 'src/wireguard_keys.dart';
 
 // Wallet Core orchestrator
 export 'src/wallet_core.dart';

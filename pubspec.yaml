@@ -21,6 +21,10 @@ dependencies:
 
   # Cryptography
   cryptography: ^2.7.0
+  crypto: ^3.0.3
+
+  # FFI for native bindings
+  ffi: ^2.1.0
 
   # Key derivation
   bip39: ^1.0.6
