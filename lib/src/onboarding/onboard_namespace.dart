@@ -64,7 +64,7 @@ class OnboardNamespace implements Namespace {
   OnboardNamespace({this.onSeal});
 
   @override
-  Result<Scroll?> read(String path) {
+  NineResult<Scroll?> read(String path) {
     if (_closed) return const Err(ClosedError());
 
     return switch (path) {
@@ -75,7 +75,7 @@ class OnboardNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> write(String path, Map<String, dynamic> data) {
+  NineResult<Scroll> write(String path, Map<String, dynamic> data) {
     if (_closed) return const Err(ClosedError());
 
     return switch (path) {
@@ -93,24 +93,24 @@ class OnboardNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> writeScroll(Scroll scroll) {
+  NineResult<Scroll> writeScroll(Scroll scroll) {
     return write(scroll.key, scroll.data);
   }
 
   @override
-  Result<List<String>> list(String prefix) {
+  NineResult<List<String>> list(String prefix) {
     if (_closed) return const Err(ClosedError());
     return const Ok(['/state', '/mnemonic']);
   }
 
   @override
-  Result<Stream<Scroll>> watch(String pattern) {
+  NineResult<Stream<Scroll>> watch(String pattern) {
     if (_closed) return const Err(ClosedError());
     return Ok(_changes.stream);
   }
 
   @override
-  Result<void> close() {
+  NineResult<void> close() {
     if (!_closed) {
       _closed = true;
       _changes.close();
@@ -169,7 +169,7 @@ class OnboardNamespace implements Namespace {
   // TRANSITIONS
   // ===========================================================================
 
-  Result<Scroll> _updateState(Map<String, dynamic> data) {
+  NineResult<Scroll> _updateState(Map<String, dynamic> data) {
     final stepName = data['step'] as String?;
     if (stepName != null) {
       _step = OnboardStep.values.firstWhere(
@@ -186,7 +186,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _generate() {
+  NineResult<Scroll> _generate() {
     _step = OnboardStep.generate;
     _isRestore = false;
     _revealed = false;
@@ -203,7 +203,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _handleReveal() {
+  NineResult<Scroll> _handleReveal() {
     _revealed = true;
     _notify();
     return Ok(_stateScroll());
@@ -219,7 +219,7 @@ class OnboardNamespace implements Namespace {
     _quizInputs = ['', '', ''];
   }
 
-  Result<Scroll> _handlePin(Map<String, dynamic> data) {
+  NineResult<Scroll> _handlePin(Map<String, dynamic> data) {
     if (data.containsKey('digit')) {
       final digit = data['digit'] as String;
       if (_pin.length < 6) {
@@ -243,7 +243,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _handleConfirm(Map<String, dynamic> data) {
+  NineResult<Scroll> _handleConfirm(Map<String, dynamic> data) {
     if (data.containsKey('digit')) {
       final digit = data['digit'] as String;
       if (_confirmPin.length < 6) {
@@ -273,7 +273,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _handleQuiz(Map<String, dynamic> data) {
+  NineResult<Scroll> _handleQuiz(Map<String, dynamic> data) {
     final index = data['index'] as int?;
     final value = data['value'] as String?;
     if (index != null && value != null && index >= 0 && index < 3) {
@@ -283,7 +283,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _handleRestore(Map<String, dynamic> data) {
+  NineResult<Scroll> _handleRestore(Map<String, dynamic> data) {
     final words = data['words'] as List?;
     if (words != null) {
       _restoreWords = words.cast<String>();
@@ -292,7 +292,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _validate() {
+  NineResult<Scroll> _validate() {
     if (_isRestore) {
       // Validate restore phrase
       if (_isRestoreValid) {
@@ -309,7 +309,7 @@ class OnboardNamespace implements Namespace {
     return Ok(_stateScroll());
   }
 
-  Result<Scroll> _seal() {
+  NineResult<Scroll> _seal() {
     _step = OnboardStep.sealing;
     _sealError = null;
     _notify();

@@ -123,7 +123,7 @@ class IdentityNamespace implements Namespace {
   // ==========================================================================
 
   @override
-  Result<Scroll?> read(String path) {
+  NineResult<Scroll?> read(String path) {
     if (_closed) return const Err(ClosedError());
 
     final scroll = _cache[path];
@@ -131,18 +131,18 @@ class IdentityNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> write(String path, Map<String, dynamic> data) {
+  NineResult<Scroll> write(String path, Map<String, dynamic> data) {
     // Identity is read-only - derived from seed
     return const Err(InternalError('Identity namespace is read-only'));
   }
 
   @override
-  Result<Scroll> writeScroll(Scroll scroll) {
+  NineResult<Scroll> writeScroll(Scroll scroll) {
     return const Err(InternalError('Identity namespace is read-only'));
   }
 
   @override
-  Result<List<String>> list(String prefix) {
+  NineResult<List<String>> list(String prefix) {
     if (_closed) return const Err(ClosedError());
 
     final paths = _cache.keys
@@ -152,7 +152,7 @@ class IdentityNamespace implements Namespace {
   }
 
   @override
-  Result<Stream<Scroll>> watch(String pattern) {
+  NineResult<Stream<Scroll>> watch(String pattern) {
     if (_closed) return const Err(ClosedError());
 
     final controller = StreamController<Scroll>();
@@ -162,7 +162,7 @@ class IdentityNamespace implements Namespace {
   }
 
   @override
-  Result<void> close() {
+  NineResult<void> close() {
     _closed = true;
     for (final watcher in _watchers) {
       watcher.controller.close();

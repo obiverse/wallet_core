@@ -12,10 +12,9 @@ dependencies:
   # reproducible builds and proper versioning across environments.
 
   # 9S Protocol - re-exported for downstream consumers
+  # TODO: Switch back to git after pushing fixes
   nine_s:
-    git:
-      url: https://github.com/obiverse/nine_s_dart.git
-      ref: main
+    path: ../nine_s_dart
 
   # Lightning + Bitcoin via Breez SDK Liquid
   flutter_breez_liquid:

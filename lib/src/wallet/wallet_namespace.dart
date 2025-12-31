@@ -60,7 +60,7 @@ class WalletNamespace implements Namespace {
   late final Map<String, Future<Scroll?> Function()> _readHandlers;
 
   /// Dispatch table for write operations
-  late final Map<String, Future<Result<Scroll>> Function(Map<String, dynamic>)> _writeHandlers;
+  late final Map<String, Future<NineResult<Scroll>> Function(Map<String, dynamic>)> _writeHandlers;
 
   WalletNamespace({
     required this.mnemonic,
@@ -178,7 +178,7 @@ class WalletNamespace implements Namespace {
   // ==========================================================================
 
   @override
-  Result<Scroll?> read(String path) {
+  NineResult<Scroll?> read(String path) {
     if (_closed) return const Err(ClosedError());
 
     // Sync read - only status works synchronously
@@ -410,14 +410,14 @@ class WalletNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> write(String path, Map<String, dynamic> data) {
+  NineResult<Scroll> write(String path, Map<String, dynamic> data) {
     if (_closed) return const Err(ClosedError());
     return Err(InternalError('Use writeAsync for wallet operations'));
   }
 
   /// Async write for wallet operations
   /// Uses dispatch table for O(1) lookup (SICP data-directed programming)
-  Future<Result<Scroll>> writeAsync(String path, Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> writeAsync(String path, Map<String, dynamic> data) async {
     if (_closed) return const Err(ClosedError());
 
     try {
@@ -432,7 +432,7 @@ class WalletNamespace implements Namespace {
     }
   }
 
-  Future<Result<Scroll>> _handleSend(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleSend(Map<String, dynamic> data) async {
     final to = data['to'] as String?;
     final amount = data['amount'] as int?;
 
@@ -471,7 +471,7 @@ class WalletNamespace implements Namespace {
     return Ok(scroll);
   }
 
-  Future<Result<Scroll>> _handleInvoice(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleInvoice(Map<String, dynamic> data) async {
     final amount = data['amount'] as int?;
     final description = data['description'] as String?;
 
@@ -506,7 +506,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleParse(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleParse(Map<String, dynamic> data) async {
     final input = data['input'] as String?;
 
     if (input == null || input.isEmpty) {
@@ -585,7 +585,7 @@ class WalletNamespace implements Namespace {
     };
   }
 
-  Future<Result<Scroll>> _handleReceivePrepare(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleReceivePrepare(Map<String, dynamic> data) async {
     final amount = data['amount'] as int?;
     final method = data['method'] as String? ?? 'bolt11';
 
@@ -623,7 +623,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleReceiveExecute(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleReceiveExecute(Map<String, dynamic> data) async {
     final prepareId = data['prepareId'] as String?;
     final description = data['description'] as String?;
 
@@ -654,7 +654,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleFeeEstimate(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleFeeEstimate(Map<String, dynamic> data) async {
     final to = data['to'] as String?;
     final amount = data['amount'] as int?;
 
@@ -682,7 +682,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleSync() async {
+  Future<NineResult<Scroll>> _handleSync() async {
     final sdk = await _ensureConnected();
     await sdk.sync();
 
@@ -693,7 +693,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleRefresh() async {
+  Future<NineResult<Scroll>> _handleRefresh() async {
     final sdk = await _ensureConnected();
     await sdk.sync();
     final info = await sdk.getInfo();
@@ -709,7 +709,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleDisconnect() async {
+  Future<NineResult<Scroll>> _handleDisconnect() async {
     if (_sdk != null) {
       await _sdk!.disconnect();
       _sdk = null;
@@ -721,7 +721,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleLnurlPay(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleLnurlPay(Map<String, dynamic> data) async {
     final lnurlData = data['data'] as Map<String, dynamic>?;
     final amount = data['amount'] as int?;
     final comment = data['comment'] as String?;
@@ -771,7 +771,7 @@ class WalletNamespace implements Namespace {
     };
   }
 
-  Future<Result<Scroll>> _handleLnurlPayPrepare(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleLnurlPayPrepare(Map<String, dynamic> data) async {
     final lnurlData = data['data'] as Map<String, dynamic>?;
     final amount = data['amount'] as int?;
 
@@ -807,7 +807,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleLnurlWithdraw(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleLnurlWithdraw(Map<String, dynamic> data) async {
     final lnurlData = data['data'] as Map<String, dynamic>?;
     final amount = data['amount'] as int?;
     final description = data['description'] as String?;
@@ -851,7 +851,7 @@ class WalletNamespace implements Namespace {
     };
   }
 
-  Future<Result<Scroll>> _handleLnurlAuth(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleLnurlAuth(Map<String, dynamic> data) async {
     final lnurlData = data['data'] as Map<String, dynamic>?;
 
     if (lnurlData == null) {
@@ -883,7 +883,7 @@ class WalletNamespace implements Namespace {
     };
   }
 
-  Future<Result<Scroll>> _handleRefundPrepare(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleRefundPrepare(Map<String, dynamic> data) async {
     final swapAddress = data['swapAddress'] as String?;
     final toAddress = data['toAddress'] as String?;
     final feeRateSatPerVbyte = data['feeRate'] as int?;
@@ -913,7 +913,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleRefund(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleRefund(Map<String, dynamic> data) async {
     final swapAddress = data['swapAddress'] as String?;
     final toAddress = data['toAddress'] as String?;
     final feeRateSatPerVbyte = data['feeRate'] as int?;
@@ -939,7 +939,7 @@ class WalletNamespace implements Namespace {
     ));
   }
 
-  Future<Result<Scroll>> _handleBolt12Offer(Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> _handleBolt12Offer(Map<String, dynamic> data) async {
     final description = data['description'] as String?;
 
     final sdk = await _ensureConnected();
@@ -961,12 +961,12 @@ class WalletNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> writeScroll(Scroll scroll) {
+  NineResult<Scroll> writeScroll(Scroll scroll) {
     return write(scroll.key, scroll.data);
   }
 
   @override
-  Result<List<String>> list(String prefix) {
+  NineResult<List<String>> list(String prefix) {
     if (_closed) return const Err(ClosedError());
 
     final paths = [
@@ -987,7 +987,7 @@ class WalletNamespace implements Namespace {
   }
 
   @override
-  Result<Stream<Scroll>> watch(String pattern) {
+  NineResult<Stream<Scroll>> watch(String pattern) {
     if (_closed) return const Err(ClosedError());
 
     final controller = StreamController<Scroll>();
@@ -1006,7 +1006,7 @@ class WalletNamespace implements Namespace {
   }
 
   @override
-  Result<void> close() {
+  NineResult<void> close() {
     _closed = true;
     _sdk?.disconnect();
     _sdk = null;

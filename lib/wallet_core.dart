@@ -78,14 +78,15 @@ export 'src/identity/mobi.dart';
 export 'src/identity/wireguard_keys.dart';
 
 // /vault/* - Encrypted storage (Layer 0 crypto)
-export 'src/vault/vault_core_ffi.dart' show VaultCore, VaultException, VaultError;
+// Use pure Dart implementation instead of FFI for cross-platform support
+export 'src/vault/vault_core_dart.dart' show VaultCore, VaultException, VaultError;
 export 'src/vault/vault_namespace.dart';
 
 // /nostr/* - Nostr protocol (relay, signing)
 export 'src/nostr/nostr_signer.dart';
 
 // Onboarding (temporary namespace during setup)
-export 'src/onboard_namespace.dart';
+export 'src/onboarding/onboard_namespace.dart';
 
 // Wallet Core orchestrator
 export 'src/wallet_core.dart';

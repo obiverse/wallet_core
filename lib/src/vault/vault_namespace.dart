@@ -74,7 +74,7 @@ class VaultNamespace implements Namespace {
   /// - [passphrase]: User's passphrase/PIN
   ///
   /// Runs Argon2 in isolate to avoid blocking UI.
-  Future<Result<void>> init(String passphrase) async {
+  Future<NineResult<void>> init(String passphrase) async {
     if (_closed) return const Err(ClosedError());
     if (_salt != null) return const Err(InternalError('Vault already initialized'));
 
@@ -106,7 +106,7 @@ class VaultNamespace implements Namespace {
   /// - [passphrase]: User's passphrase/PIN
   ///
   /// Returns error if passphrase is wrong (can't verify until first read).
-  Future<Result<void>> unlock(String passphrase) async {
+  Future<NineResult<void>> unlock(String passphrase) async {
     if (_closed) return const Err(ClosedError());
     if (_key != null) return const Ok(null); // Already unlocked
 
@@ -154,13 +154,13 @@ class VaultNamespace implements Namespace {
   // ===========================================================================
 
   @override
-  Result<Scroll?> read(String path) {
+  NineResult<Scroll?> read(String path) {
     // Sync read not supported (decryption should be async)
     return const Err(InternalError('Use readAsync for vault operations'));
   }
 
   /// Async read with decryption
-  Future<Result<Scroll?>> readAsync(String path) async {
+  Future<NineResult<Scroll?>> readAsync(String path) async {
     if (_closed) return const Err(ClosedError());
     if (_key == null) return const Err(InternalError('Vault is locked'));
 
@@ -194,13 +194,13 @@ class VaultNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> write(String path, Map<String, dynamic> data) {
+  NineResult<Scroll> write(String path, Map<String, dynamic> data) {
     // Sync write not supported
     return const Err(InternalError('Use writeAsync for vault operations'));
   }
 
   /// Async write with encryption
-  Future<Result<Scroll>> writeAsync(String path, Map<String, dynamic> data) async {
+  Future<NineResult<Scroll>> writeAsync(String path, Map<String, dynamic> data) async {
     if (_closed) return const Err(ClosedError());
     if (_key == null) return const Err(InternalError('Vault is locked'));
 
@@ -241,12 +241,12 @@ class VaultNamespace implements Namespace {
   }
 
   @override
-  Result<Scroll> writeScroll(Scroll scroll) {
+  NineResult<Scroll> writeScroll(Scroll scroll) {
     return const Err(InternalError('Use writeAsync'));
   }
 
   @override
-  Result<List<String>> list(String prefix) {
+  NineResult<List<String>> list(String prefix) {
     if (_closed) return const Err(ClosedError());
 
     // List doesn't need decryption - just returns paths
@@ -259,7 +259,7 @@ class VaultNamespace implements Namespace {
   }
 
   @override
-  Result<Stream<Scroll>> watch(String pattern) {
+  NineResult<Stream<Scroll>> watch(String pattern) {
     if (_closed) return const Err(ClosedError());
 
     final controller = StreamController<Scroll>();
@@ -269,7 +269,7 @@ class VaultNamespace implements Namespace {
   }
 
   @override
-  Result<void> close() {
+  NineResult<void> close() {
     lock();
     _closed = true;
 
