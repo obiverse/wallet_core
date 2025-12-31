@@ -64,16 +64,28 @@ library wallet_core;
 // Re-export all of nine_s - downstream only needs to import wallet_core
 export 'package:nine_s/nine_s.dart';
 
-// Wallet Core namespaces
-export 'src/wallet_namespace.dart';
-export 'src/identity_namespace.dart';
-export 'src/onboard_namespace.dart';
+// =============================================================================
+// Namespaces - Each folder is a self-contained namespace
+// =============================================================================
 
-// Key derivation and identity
-export 'src/master_key.dart';
-export 'src/mobi.dart';
-export 'src/nostr_signer.dart';
-export 'src/wireguard_keys.dart';
+// /wallet/* - Bitcoin + Lightning (Breez SDK)
+export 'src/wallet/wallet_namespace.dart';
+
+// /identity/* - Seed-derived identity (npub, mobi, keys)
+export 'src/identity/identity_namespace.dart';
+export 'src/identity/master_key.dart';
+export 'src/identity/mobi.dart';
+export 'src/identity/wireguard_keys.dart';
+
+// /vault/* - Encrypted storage (Layer 0 crypto)
+export 'src/vault/vault_core_ffi.dart' show VaultCore, VaultException, VaultError;
+export 'src/vault/vault_namespace.dart';
+
+// /nostr/* - Nostr protocol (relay, signing)
+export 'src/nostr/nostr_signer.dart';
+
+// Onboarding (temporary namespace during setup)
+export 'src/onboard_namespace.dart';
 
 // Wallet Core orchestrator
 export 'src/wallet_core.dart';

@@ -14,11 +14,11 @@ library;
 
 import 'package:nine_s/nine_s.dart';
 
-import 'wallet_namespace.dart';
-import 'identity_namespace.dart';
-import 'master_key.dart';
-import 'nostr_signer.dart';
-import 'wireguard_keys.dart';
+import 'wallet/wallet_namespace.dart';
+import 'identity/identity_namespace.dart';
+import 'identity/master_key.dart';
+import 'identity/wireguard_keys.dart';
+import 'nostr/nostr_signer.dart';
 
 /// WalletCore - Layer 0 for sovereign wallets
 ///

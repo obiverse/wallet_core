@@ -22,7 +22,7 @@ import 'package:pointycastle/export.dart';
 import 'package:convert/convert.dart';
 import 'package:crypto/crypto.dart' as crypto;
 
-import 'master_key.dart';
+import '../identity/master_key.dart';
 
 // =============================================================================
 // NOSTR SIGNER - Real Schnorr, Real ECDH

@@ -1,0 +1,29 @@
+[package]
+name = "vault_core"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal cryptographic core for BeeWallet vault operations"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+# Argon2id for key derivation (memory-hard, GPU-resistant)
+argon2 = { version = "0.5", features = ["std"] }
+
+# ChaCha20-Poly1305 for authenticated encryption
+chacha20poly1305 = "0.10"
+
+# Secure memory wiping
+zeroize = { version = "1.8", features = ["derive"] }
+
+# Random number generation
+getrandom = "0.2"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1   # Single codegen unit for better optimization
+strip = true        # Strip symbols
+panic = "abort"     # Smaller panic handling

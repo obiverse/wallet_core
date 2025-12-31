@@ -3,6 +3,8 @@
 .packages
 build/
 pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
 
 # IDE
 .idea/
@@ -15,3 +17,7 @@ Thumbs.db
 
 # Test
 coverage/
+
+# Rust (vault_core native)
+lib/src/vault/native/target/
+lib/src/vault/native/Cargo.lock
